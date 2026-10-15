@@ -2,18 +2,18 @@
   "name": "claude-usage-bar-plus",
   "displayName": "Claude Usage Bar Plus",
   "description": "Claude Code context-window fill, prompt cache state, a compact nudge and 5-hour / 7-day plan usage in one status bar item.",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "publisher": "kaedinger",
   "license": "MIT",
   "icon": "images/icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/kaedinger/vscode-claude-token-usage-bar.git"
+    "url": "https://github.com/kaedinger/vscode-claude-token-usage-bar-ext.git"
   },
   "bugs": {
-    "url": "https://github.com/kaedinger/vscode-claude-token-usage-bar/issues"
+    "url": "https://github.com/kaedinger/vscode-claude-token-usage-bar-ext/issues"
   },
-  "homepage": "https://github.com/kaedinger/vscode-claude-token-usage-bar#readme",
+  "homepage": "https://github.com/kaedinger/vscode-claude-token-usage-bar-ext#readme",
   "categories": [
     "Other",
     "Visualization"
@@ -37,107 +37,107 @@
   "contributes": {
     "commands": [
       {
-        "command": "claudeMonitor.refresh",
+        "command": "claudeUsageBarPlus.refresh",
         "title": "Claude Usage Bar Plus: Refresh Now"
       },
       {
-        "command": "claudeMonitor.toggle",
+        "command": "claudeUsageBarPlus.toggle",
         "title": "Claude Usage Bar Plus: Show/Hide"
       }
     ],
     "configuration": {
       "title": "Claude Usage Bar Plus",
       "properties": {
-        "claudeMonitor.contextWindow": {
+        "claudeUsageBarPlus.contextWindow": {
           "type": "number",
           "default": 1000000,
-          "description": "Fallback context-window size in tokens, used when the model can't be auto-detected (see claudeMonitor.autoDetectContextWindow)."
+          "description": "Fallback context-window size in tokens, used when the model can't be auto-detected (see claudeUsageBarPlus.autoDetectContextWindow)."
         },
-        "claudeMonitor.autoDetectContextWindow": {
+        "claudeUsageBarPlus.autoDetectContextWindow": {
           "type": "boolean",
           "default": true,
-          "description": "Pick the context-window size from the session's model (current models = 1M, Haiku 4.5 = 200k). Falls back to claudeMonitor.contextWindow when the model is unknown."
+          "description": "Pick the context-window size from the session's model (current models = 1M, Haiku 4.5 = 200k). Falls back to claudeUsageBarPlus.contextWindow when the model is unknown."
         },
-        "claudeMonitor.refreshMs": {
+        "claudeUsageBarPlus.refreshMs": {
           "type": "number",
           "default": 3000,
           "minimum": 500,
           "description": "How often to check the logs and refresh the status bar, in milliseconds. Only newly appended data is read."
         },
-        "claudeMonitor.barWidth": {
+        "claudeUsageBarPlus.barWidth": {
           "type": "number",
           "default": 6,
           "minimum": 4,
           "maximum": 40,
           "description": "Width of the context bar graph in characters."
         },
-        "claudeMonitor.showContext": {
+        "claudeUsageBarPlus.showContext": {
           "type": "boolean",
           "default": true,
           "description": "Show the context-window gauge."
         },
-        "claudeMonitor.showCache": {
+        "claudeUsageBarPlus.showCache": {
           "type": "boolean",
           "default": true,
           "description": "Show the estimated prompt cache state (minutes left, or cold)."
         },
-        "claudeMonitor.showPlanUsage": {
+        "claudeUsageBarPlus.showPlanUsage": {
           "type": "boolean",
           "default": true,
           "description": "Show 5-hour / 7-day plan usage (Pro/Max)."
         },
-        "claudeMonitor.showTodayUsage": {
+        "claudeUsageBarPlus.showTodayUsage": {
           "type": "boolean",
           "default": false,
           "description": "Show today's cumulative token usage."
         },
-        "claudeMonitor.cacheTtlMinutes": {
+        "claudeUsageBarPlus.cacheTtlMinutes": {
           "type": "number",
           "default": 60,
           "minimum": 1,
           "description": "Prompt cache TTL used when the transcript doesn't say which TTL the last cache write used. 60 for Pro/Max within plan usage; 5 on usage credits or an API key."
         },
-        "claudeMonitor.compactNudge.enabled": {
+        "claudeUsageBarPlus.compactNudge.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Periodically flash 'Compact before closing' while the context is large and the cache is still warm."
         },
-        "claudeMonitor.compactNudge.minContextTokens": {
+        "claudeUsageBarPlus.compactNudge.minContextTokens": {
           "type": "number",
           "default": 100000,
           "minimum": 0,
           "description": "Only nudge when the context holds at least this many tokens."
         },
-        "claudeMonitor.compactNudge.intervalMinutes": {
+        "claudeUsageBarPlus.compactNudge.intervalMinutes": {
           "type": "number",
           "default": 5,
           "minimum": 1,
           "description": "Minutes between nudges."
         },
-        "claudeMonitor.compactNudge.flashSeconds": {
+        "claudeUsageBarPlus.compactNudge.flashSeconds": {
           "type": "number",
           "default": 10,
           "minimum": 1,
           "description": "How long each nudge flashes."
         },
-        "claudeMonitor.planUsage.staleMinutes": {
+        "claudeUsageBarPlus.planUsage.staleMinutes": {
           "type": "number",
           "default": 15,
           "minimum": 1,
           "description": "Mark the plan usage reading as stale in the tooltip when it is older than this."
         },
-        "claudeMonitor.planUsage.apiFallback": {
+        "claudeUsageBarPlus.planUsage.apiFallback": {
           "type": "boolean",
           "default": false,
           "description": "When Claude Code's saved reading is stale, fetch plan usage from Anthropic's internal OAuth usage endpoint using Claude Code's token. Undocumented; may break. Shares a small rate budget with Claude Code."
         },
-        "claudeMonitor.planUsage.pollMinutes": {
+        "claudeUsageBarPlus.planUsage.pollMinutes": {
           "type": "number",
           "default": 5,
           "minimum": 2,
           "description": "Minimum minutes between API fallback requests (only while the window is focused)."
         },
-        "claudeMonitor.scope": {
+        "claudeUsageBarPlus.scope": {
           "type": "string",
           "enum": [
             "workspace",
@@ -150,7 +150,7 @@
           ],
           "description": "Which session the context and cache parts reflect."
         },
-        "claudeMonitor.alignment": {
+        "claudeUsageBarPlus.alignment": {
           "type": "string",
           "enum": [
             "left",

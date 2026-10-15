@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.0
+
+- Settings and commands renamed from `claudeMonitor.*` to `claudeUsageBarPlus.*`, so the fork no longer collides with the original extension. Existing `claudeMonitor.*` settings need to be re-entered under the new names.
+- Repository renamed to `vscode-claude-token-usage-bar-ext`.
+
 ## 0.6.0 (fork: Claude Usage Bar Plus)
 
 - New segments: estimated prompt cache state (`cache 37m` / `cache cold`) and 5-hour / 7-day plan usage from Claude Code's saved reading, with an optional, off-by-default API fallback.
