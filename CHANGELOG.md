@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.1
+
+- First release on the VS Code Marketplace and Open VSX. Marketplace publishing signs in with Microsoft Entra ID (no stored token).
+- README: install/update instructions, commands, and the configurable reminder text.
+
 ## 0.8.0
 
 - New setting `vscodeClaudeTokenUsageBarExt.compactNudge.message` for the text the compact reminder flashes (supports `$(icon)` names).

@@ -10,19 +10,25 @@ Ctx ▰▰▰▱▱▱ 48%  ·  cache 37m  ·  5h 23% 7d 41%
 
 - **Context:** how full the current session's context window is. The window size comes from the model (current models have 1M; Haiku 4.5 has 200k). The item turns yellow below 25% free and red below 10% free. After `/compact` it shows `Ctx compacted` until the next response.
 - **Cache:** estimated minutes left before the prompt cache expires, or `cache cold`. The TTL comes from the last cache write in the transcript (1 h or 5 min), or from `vscodeClaudeTokenUsageBarExt.cacheTtlMinutes`.
-- **Compact nudge:** while the context is large and the cache is still warm, the item periodically flashes **Compact before closing**. Compacting is cheap then; once the cache has expired, the next turn re-reads the whole context anyway. An extension can't tell when VS Code is about to close, so this is a periodic reminder.
-- **Plan usage:** 5-hour and 7-day utilization (Pro/Max) from Claude Code's last saved reading in `.claude.json`. Claude Code updates it during normal use and on `/usage`. Hover the item to see reset times; readings older than `planUsage.staleMinutes` are marked stale.
+- **Compact nudge:** while the context is large and the cache is still warm, the item periodically flashes a reminder (default **Compact before closing**, configurable via `vscodeClaudeTokenUsageBarExt.compactNudge.message`). Compacting is cheap then; once the cache has expired, the next turn re-reads the whole context anyway. An extension can't tell when VS Code is about to close, so this is a periodic reminder.
+- **Plan usage:** 5-hour and 7-day utilization (Pro/Max) from Claude Code's last saved reading in `.claude.json`. Claude Code updates it during normal use and on `/usage`. Hover the item to see reset times; readings older than `vscodeClaudeTokenUsageBarExt.planUsage.staleMinutes` are marked stale.
 
-Hover the item for details, plus a per-project token chart.
+Hover the item for details, plus a per-project token chart. Click it to refresh.
 
 All numbers are estimates from Claude Code's local files (`~/.claude`, or `$CLAUDE_CONFIG_DIR`). Their format isn't a stable public interface and may change with a Claude Code update.
+
+## Install
+
+Search for **Claude Token Usage Bar Ext** in the Extensions view (VS Code Marketplace, or Open VSX for VSCodium, Cursor and similar editors). Updates then arrive automatically.
+
+Each release's `.vsix` is also attached to [GitHub Releases](https://github.com/kaedinger/vscode-claude-token-usage-bar-ext/releases): **Extensions → ··· → Install from VSIX…**. A `.vsix` install doesn't update automatically.
 
 ## Optional: plan usage from the API
 
 `vscodeClaudeTokenUsageBarExt.planUsage.apiFallback` (off by default) fetches plan usage from Anthropic's internal `api/oauth/usage` endpoint when the saved reading is stale. It uses Claude Code's OAuth token from `.credentials.json`.
 
 - The endpoint is undocumented and may change or disappear.
-- It has a small hourly budget shared with Claude Code. The extension polls at most every `planUsage.pollMinutes` (min. 2), only while the window is focused, and honours `Retry-After`.
+- It has a small hourly budget shared with Claude Code. The extension polls at most every `vscodeClaudeTokenUsageBarExt.planUsage.pollMinutes` (min. 2), only while the window is focused, and honours `Retry-After`.
 - On macOS Claude Code keeps the token in the Keychain, so the fallback is skipped there.
 - The token is never logged or displayed.
 
@@ -52,6 +58,11 @@ All numbers are estimates from Claude Code's local files (`~/.claude`, or `$CLAU
 
 Settings and commands use their own `vscodeClaudeTokenUsageBarExt.*` IDs, so this fork can be installed next to the original. Settings from the original (`claudeMonitor.*`) are not carried over.
 
+## Commands
+
+- **Claude Token Usage Bar Ext: Refresh Now** — update immediately (same as clicking the item).
+- **Claude Token Usage Bar Ext: Show/Hide** — toggle the status bar item.
+
 ## Known limits
 
 - The extension can't run `/compact` itself; no hook or extension API can trigger it.
@@ -59,11 +70,11 @@ Settings and commands use their own `vscodeClaudeTokenUsageBarExt.*` IDs, so thi
 
 ## Build
 
+Pushing a `v*` tag builds the `.vsix` on GitHub Actions, attaches it to a GitHub Release and publishes to Open VSX (token in the `OVSX_PAT` secret) and the Marketplace (Microsoft Entra ID sign-in via a managed identity, no stored token). To build locally (needs Node):
+
 ```
 npx @vscode/vsce package
 ```
-
-Then install the `.vsix` via **Extensions → ··· → Install from VSIX…**.
 
 ## License
 

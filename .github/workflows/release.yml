@@ -1,6 +1,8 @@
 name: Release
 
-# Build the .vsix and attach it to a GitHub Release when you push a tag like v0.0.1
+# Push a tag like v1.2.3: builds the .vsix, attaches it to a GitHub Release,
+# publishes to Open VSX (if OVSX_PAT is set) and to the VS Code Marketplace
+# via Microsoft Entra ID (if the AZURE_* repo variables are set).
 on:
   push:
     tags:
@@ -14,14 +16,13 @@ jobs:
     runs-on: ubuntu-latest
     # Job-level env so the `if` conditions below can actually see these values.
     env:
-      VSCE_PAT: ${{ secrets.VSCE_PAT }}
       OVSX_PAT: ${{ secrets.OVSX_PAT }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Install vsce
         run: npm install -g @vscode/vsce
@@ -34,12 +35,45 @@ jobs:
         with:
           files: "*.vsix"
 
-      # Publishes to the VS Code Marketplace only if a VSCE_PAT repo secret exists.
-      - name: Publish to Marketplace
-        if: ${{ env.VSCE_PAT != '' }}
-        run: vsce publish -p "$VSCE_PAT"
+      - name: Keep .vsix for the Marketplace job
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: "*.vsix"
 
       # Publishes to Open VSX (VSCodium/Cursor/…) only if an OVSX_PAT secret exists.
       - name: Publish to Open VSX
         if: ${{ env.OVSX_PAT != '' }}
-        run: npx ovsx publish *.vsix -p "$OVSX_PAT"
+        run: |
+          # Creating the namespace fails harmlessly once it exists.
+          npx --yes ovsx create-namespace kaedinger -p "$OVSX_PAT" || true
+          npx --yes ovsx publish *.vsix -p "$OVSX_PAT"
+
+  marketplace:
+    needs: release
+    if: ${{ vars.AZURE_CLIENT_ID != '' }}
+    runs-on: ubuntu-latest
+    # The Azure federated credential trusts only this environment, and the
+    # environment only allows v* tags (and main).
+    environment: marketplace
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: vsix
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Sign in to Azure (OIDC, no stored secret)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Publish to the VS Code Marketplace
+        run: npx --yes @vscode/vsce publish --packagePath *.vsix --azure-credential
