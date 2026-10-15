@@ -24,8 +24,11 @@ jobs:
       - name: Marketplace member ID
         run: |
           # 499b84ac-... is the Azure DevOps / Marketplace resource.
-          id=$(az rest -u "https://app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version=7.1-preview.3" \
-                --resource 499b84ac-1321-427f-aa17-267ca6975798 --query id -o tsv)
+          res=499b84ac-1321-427f-aa17-267ca6975798
+          # The command from the VS Code publishing docs; connectionData as a
+          # fallback, since an identity may not have a profile yet.
+          id=$(az rest -u https://app.vssps.visualstudio.com/_apis/profile/profiles/me --resource $res --query id -o tsv 2>/dev/null) || \
+          id=$(az rest -u https://app.vssps.visualstudio.com/_apis/connectionData --resource $res --query authenticatedUser.id -o tsv)
           echo "Add this ID as a Contributor member of the kaedinger publisher:"
           echo "$id"
           echo "### Marketplace member ID: \`$id\`" >> "$GITHUB_STEP_SUMMARY"
