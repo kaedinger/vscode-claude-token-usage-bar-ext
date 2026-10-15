@@ -501,11 +501,13 @@ function projectLabel(dir) {
 // Compact nudge
 // ---------------------------------------------------------------------------
 
-function startFlash(seconds) {
+const DEFAULT_NUDGE_MESSAGE = '$(fold) Compact before closing';
+
+function startFlash(seconds, message) {
   stopFlash();
   flashUntil = Date.now() + seconds * 1000;
   let on = false;
-  item.text = '$(fold) Compact before closing';
+  item.text = message || DEFAULT_NUDGE_MESSAGE;
   item.tooltip = 'Context is large and the prompt cache is still warm: running /compact now is cheap. ' +
     'Once the cache expires, the next turn re-reads the full context.';
   flashTimer = setInterval(() => {
@@ -532,7 +534,10 @@ function maybeNudge(cfg, ctxTokens, cache, compacted) {
   const intervalMs = Math.max(1, cfg.get('compactNudge.intervalMinutes', 5)) * 60000;
   if (Date.now() - lastNudgeAt < intervalMs) return false;
   lastNudgeAt = Date.now();
-  startFlash(Math.max(1, cfg.get('compactNudge.flashSeconds', 10)));
+  startFlash(
+    Math.max(1, cfg.get('compactNudge.flashSeconds', 10)),
+    String(cfg.get('compactNudge.message', DEFAULT_NUDGE_MESSAGE)).trim()
+  );
   return true;
 }
 

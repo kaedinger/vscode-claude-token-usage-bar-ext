@@ -41,6 +41,7 @@ All numbers are estimates from Claude Code's local files (`~/.claude`, or `$CLAU
 | `vscodeClaudeTokenUsageBarExt.compactNudge.minContextTokens` | `100000` | Minimum context size to nudge. |
 | `vscodeClaudeTokenUsageBarExt.compactNudge.intervalMinutes` | `5` | Minutes between nudges. |
 | `vscodeClaudeTokenUsageBarExt.compactNudge.flashSeconds` | `10` | Flash duration. |
+| `vscodeClaudeTokenUsageBarExt.compactNudge.message` | `$(fold) Compact before closing` | Text shown while flashing. Supports `$(icon)` names. |
 | `vscodeClaudeTokenUsageBarExt.planUsage.staleMinutes` | `15` | Age after which a reading counts as stale. |
 | `vscodeClaudeTokenUsageBarExt.planUsage.apiFallback` | `false` | See above. |
 | `vscodeClaudeTokenUsageBarExt.planUsage.pollMinutes` | `5` | Minimum minutes between API requests. |

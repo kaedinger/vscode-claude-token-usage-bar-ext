@@ -2,7 +2,7 @@
   "name": "vscode-claude-token-usage-bar-ext",
   "displayName": "Claude Token Usage Bar Ext",
   "description": "Claude Code context-window fill, prompt cache state, a compact nudge and 5-hour / 7-day plan usage in one status bar item.",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "publisher": "kaedinger",
   "license": "MIT",
   "icon": "images/icon.png",
@@ -119,6 +119,11 @@
           "default": 10,
           "minimum": 1,
           "description": "How long each nudge flashes."
+        },
+        "vscodeClaudeTokenUsageBarExt.compactNudge.message": {
+          "type": "string",
+          "default": "$(fold) Compact before closing",
+          "markdownDescription": "Text shown while the nudge flashes. Supports icons like `$(fold)` or `$(warning)` ([icon list](https://code.visualstudio.com/api/references/icons-in-labels#icon-listing)). Empty uses the default."
         },
         "vscodeClaudeTokenUsageBarExt.planUsage.staleMinutes": {
           "type": "number",

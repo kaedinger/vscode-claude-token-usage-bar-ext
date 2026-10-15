@@ -1,6 +1,11 @@
 # Changelog
 
-## 0.7.0
+## 0.8.0
+
+- New setting `vscodeClaudeTokenUsageBarExt.compactNudge.message` for the text the compact reminder flashes (supports `$(icon)` names).
+- Removed the Korean README (`README.ko.md`), which still described the original extension.
+
+## 0.7.0 (renamed: Claude Token Usage Bar Ext)
 
 - Renamed everything after the repository, `vscode-claude-token-usage-bar-ext`: extension ID `kaedinger.vscode-claude-token-usage-bar-ext`, display name "Claude Token Usage Bar Ext".
 - Settings and commands renamed from `claudeMonitor.*` to `vscodeClaudeTokenUsageBarExt.*`, so the fork no longer collides with the original extension. Existing `claudeMonitor.*` settings need to be re-entered under the new names.
