@@ -1,6 +1,6 @@
 {
-  "name": "claude-usage-bar-plus",
-  "displayName": "Claude Usage Bar Plus",
+  "name": "vscode-claude-token-usage-bar-ext",
+  "displayName": "Claude Token Usage Bar Ext",
   "description": "Claude Code context-window fill, prompt cache state, a compact nudge and 5-hour / 7-day plan usage in one status bar item.",
   "version": "0.7.0",
   "publisher": "kaedinger",
@@ -37,107 +37,107 @@
   "contributes": {
     "commands": [
       {
-        "command": "claudeUsageBarPlus.refresh",
-        "title": "Claude Usage Bar Plus: Refresh Now"
+        "command": "vscodeClaudeTokenUsageBarExt.refresh",
+        "title": "Claude Token Usage Bar Ext: Refresh Now"
       },
       {
-        "command": "claudeUsageBarPlus.toggle",
-        "title": "Claude Usage Bar Plus: Show/Hide"
+        "command": "vscodeClaudeTokenUsageBarExt.toggle",
+        "title": "Claude Token Usage Bar Ext: Show/Hide"
       }
     ],
     "configuration": {
-      "title": "Claude Usage Bar Plus",
+      "title": "Claude Token Usage Bar Ext",
       "properties": {
-        "claudeUsageBarPlus.contextWindow": {
+        "vscodeClaudeTokenUsageBarExt.contextWindow": {
           "type": "number",
           "default": 1000000,
-          "description": "Fallback context-window size in tokens, used when the model can't be auto-detected (see claudeUsageBarPlus.autoDetectContextWindow)."
+          "description": "Fallback context-window size in tokens, used when the model can't be auto-detected (see vscodeClaudeTokenUsageBarExt.autoDetectContextWindow)."
         },
-        "claudeUsageBarPlus.autoDetectContextWindow": {
+        "vscodeClaudeTokenUsageBarExt.autoDetectContextWindow": {
           "type": "boolean",
           "default": true,
-          "description": "Pick the context-window size from the session's model (current models = 1M, Haiku 4.5 = 200k). Falls back to claudeUsageBarPlus.contextWindow when the model is unknown."
+          "description": "Pick the context-window size from the session's model (current models = 1M, Haiku 4.5 = 200k). Falls back to vscodeClaudeTokenUsageBarExt.contextWindow when the model is unknown."
         },
-        "claudeUsageBarPlus.refreshMs": {
+        "vscodeClaudeTokenUsageBarExt.refreshMs": {
           "type": "number",
           "default": 3000,
           "minimum": 500,
           "description": "How often to check the logs and refresh the status bar, in milliseconds. Only newly appended data is read."
         },
-        "claudeUsageBarPlus.barWidth": {
+        "vscodeClaudeTokenUsageBarExt.barWidth": {
           "type": "number",
           "default": 6,
           "minimum": 4,
           "maximum": 40,
           "description": "Width of the context bar graph in characters."
         },
-        "claudeUsageBarPlus.showContext": {
+        "vscodeClaudeTokenUsageBarExt.showContext": {
           "type": "boolean",
           "default": true,
           "description": "Show the context-window gauge."
         },
-        "claudeUsageBarPlus.showCache": {
+        "vscodeClaudeTokenUsageBarExt.showCache": {
           "type": "boolean",
           "default": true,
           "description": "Show the estimated prompt cache state (minutes left, or cold)."
         },
-        "claudeUsageBarPlus.showPlanUsage": {
+        "vscodeClaudeTokenUsageBarExt.showPlanUsage": {
           "type": "boolean",
           "default": true,
           "description": "Show 5-hour / 7-day plan usage (Pro/Max)."
         },
-        "claudeUsageBarPlus.showTodayUsage": {
+        "vscodeClaudeTokenUsageBarExt.showTodayUsage": {
           "type": "boolean",
           "default": false,
           "description": "Show today's cumulative token usage."
         },
-        "claudeUsageBarPlus.cacheTtlMinutes": {
+        "vscodeClaudeTokenUsageBarExt.cacheTtlMinutes": {
           "type": "number",
           "default": 60,
           "minimum": 1,
           "description": "Prompt cache TTL used when the transcript doesn't say which TTL the last cache write used. 60 for Pro/Max within plan usage; 5 on usage credits or an API key."
         },
-        "claudeUsageBarPlus.compactNudge.enabled": {
+        "vscodeClaudeTokenUsageBarExt.compactNudge.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Periodically flash 'Compact before closing' while the context is large and the cache is still warm."
         },
-        "claudeUsageBarPlus.compactNudge.minContextTokens": {
+        "vscodeClaudeTokenUsageBarExt.compactNudge.minContextTokens": {
           "type": "number",
           "default": 100000,
           "minimum": 0,
           "description": "Only nudge when the context holds at least this many tokens."
         },
-        "claudeUsageBarPlus.compactNudge.intervalMinutes": {
+        "vscodeClaudeTokenUsageBarExt.compactNudge.intervalMinutes": {
           "type": "number",
           "default": 5,
           "minimum": 1,
           "description": "Minutes between nudges."
         },
-        "claudeUsageBarPlus.compactNudge.flashSeconds": {
+        "vscodeClaudeTokenUsageBarExt.compactNudge.flashSeconds": {
           "type": "number",
           "default": 10,
           "minimum": 1,
           "description": "How long each nudge flashes."
         },
-        "claudeUsageBarPlus.planUsage.staleMinutes": {
+        "vscodeClaudeTokenUsageBarExt.planUsage.staleMinutes": {
           "type": "number",
           "default": 15,
           "minimum": 1,
           "description": "Mark the plan usage reading as stale in the tooltip when it is older than this."
         },
-        "claudeUsageBarPlus.planUsage.apiFallback": {
+        "vscodeClaudeTokenUsageBarExt.planUsage.apiFallback": {
           "type": "boolean",
           "default": false,
           "description": "When Claude Code's saved reading is stale, fetch plan usage from Anthropic's internal OAuth usage endpoint using Claude Code's token. Undocumented; may break. Shares a small rate budget with Claude Code."
         },
-        "claudeUsageBarPlus.planUsage.pollMinutes": {
+        "vscodeClaudeTokenUsageBarExt.planUsage.pollMinutes": {
           "type": "number",
           "default": 5,
           "minimum": 2,
           "description": "Minimum minutes between API fallback requests (only while the window is focused)."
         },
-        "claudeUsageBarPlus.scope": {
+        "vscodeClaudeTokenUsageBarExt.scope": {
           "type": "string",
           "enum": [
             "workspace",
@@ -150,7 +150,7 @@
           ],
           "description": "Which session the context and cache parts reflect."
         },
-        "claudeUsageBarPlus.alignment": {
+        "vscodeClaudeTokenUsageBarExt.alignment": {
           "type": "string",
           "enum": [
             "left",

@@ -2,8 +2,8 @@
 
 ## 0.7.0
 
-- Settings and commands renamed from `claudeMonitor.*` to `claudeUsageBarPlus.*`, so the fork no longer collides with the original extension. Existing `claudeMonitor.*` settings need to be re-entered under the new names.
-- Repository renamed to `vscode-claude-token-usage-bar-ext`.
+- Renamed everything after the repository, `vscode-claude-token-usage-bar-ext`: extension ID `kaedinger.vscode-claude-token-usage-bar-ext`, display name "Claude Token Usage Bar Ext".
+- Settings and commands renamed from `claudeMonitor.*` to `vscodeClaudeTokenUsageBarExt.*`, so the fork no longer collides with the original extension. Existing `claudeMonitor.*` settings need to be re-entered under the new names.
 
 ## 0.6.0 (fork: Claude Usage Bar Plus)
 

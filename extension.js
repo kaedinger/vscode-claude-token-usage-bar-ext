@@ -32,18 +32,18 @@ function activate(context) {
 
   // A single item so nothing (Copilot, encoding, Ln/Col…) can wedge between the parts.
   item = vscode.window.createStatusBarItem(align, 100);
-  item.command = 'claudeUsageBarPlus.refresh';
+  item.command = 'vscodeClaudeTokenUsageBarExt.refresh';
 
   context.subscriptions.push(item);
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('claudeUsageBarPlus.refresh', update),
-    vscode.commands.registerCommand('claudeUsageBarPlus.toggle', () => {
+    vscode.commands.registerCommand('vscodeClaudeTokenUsageBarExt.refresh', update),
+    vscode.commands.registerCommand('vscodeClaudeTokenUsageBarExt.toggle', () => {
       visible = !visible;
       update();
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('claudeUsageBarPlus')) {
+      if (e.affectsConfiguration('vscodeClaudeTokenUsageBarExt')) {
         restartTimer();
         update();
       }
@@ -55,7 +55,7 @@ function activate(context) {
 }
 
 function getCfg() {
-  return vscode.workspace.getConfiguration('claudeUsageBarPlus');
+  return vscode.workspace.getConfiguration('vscodeClaudeTokenUsageBarExt');
 }
 
 function restartTimer() {
@@ -582,7 +582,7 @@ function update() {
     compacted = !!entry.compactAfterLast;
     const detected = autoDetect ? windowForModel(last.model) : null;
     let max = detected || cfgMax;
-    let windowNote = detected ? 'auto-detected from model' : autoDetect ? 'unknown model, using `claudeUsageBarPlus.contextWindow`' : 'from `claudeUsageBarPlus.contextWindow`';
+    let windowNote = detected ? 'auto-detected from model' : autoDetect ? 'unknown model, using `vscodeClaudeTokenUsageBarExt.contextWindow`' : 'from `vscodeClaudeTokenUsageBarExt.contextWindow`';
     if (ctxTokens > max && max < 1000000) {
       max = 1000000;
       windowNote = 'assumed 1M because usage exceeds the detected window';
@@ -622,7 +622,7 @@ function update() {
   const cache = cacheState(entry, cfg);
   if (cache) {
     if (showCache) parts.push(cache.warm ? `cache ${fmtDuration(cache.remainingMs)}` : 'cache cold');
-    const ttlSrc = cache.fromRecord ? 'from the last cache write' : 'from `claudeUsageBarPlus.cacheTtlMinutes`';
+    const ttlSrc = cache.fromRecord ? 'from the last cache write' : 'from `vscodeClaudeTokenUsageBarExt.cacheTtlMinutes`';
     tip.push(
       `**Prompt cache** _(estimate)_\n\n` +
         (cache.warm
