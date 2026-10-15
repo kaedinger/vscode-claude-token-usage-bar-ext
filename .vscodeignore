@@ -5,3 +5,6 @@
 node_modules/**
 scripts/**
 images/screenshot.png
+PLAN.md
+.claude/**
+README.ko.md

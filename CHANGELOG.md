@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0 (fork: Claude Usage Bar Plus)
+
+- New segments: estimated prompt cache state (`cache 37m` / `cache cold`) and 5-hour / 7-day plan usage from Claude Code's saved reading, with an optional, off-by-default API fallback.
+- "Compact before closing" nudge: flashes periodically while the context is large and the cache is warm.
+- Fixed workspace matching on Windows (drive-letter case) and for multi-root workspaces; long project paths match on the truncated prefix.
+- Respects `CLAUDE_CONFIG_DIR`.
+- Fixed totals counting each response 2–3×: Claude Code writes one line per content block with the same usage, so messages are now deduplicated by id. Sync-conflict copies of transcripts are ignored.
+- Context ignores subagent (sidechain) and `<synthetic>` records, and shows `Ctx compacted` after `/compact` until the next response.
+- Model table updated (Opus 5.5/5, Sonnet 5.5/5, Haiku 5.5, Fable 5.1 = 1M; 4.5 models = 200k). Unknown models fall back to the setting and say so in the tooltip.
+- Logs are read incrementally (only appended bytes) instead of re-reading whole files every refresh.
+- Per-segment show/hide settings; "Today" is now off by default.
+
 ## 0.5.1
 
 - Hover dashboard now visualizes **every project's** total token usage as a bar chart (no longer capped at 6), sorted by usage. Per-file caching keeps it fast.

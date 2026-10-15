@@ -2,13 +2,27 @@ const vscode = require('vscode');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const https = require('https');
 
 let item; // single combined status bar item
 let timer;
 let visible = true;
-// path -> { mtime, tokens }: per-file all-time token total, cached by mtime so
-// unchanged logs aren't re-read on every refresh.
-const fileTokenCache = new Map();
+
+// path -> per-file scan state (see scanFile). Files are read incrementally:
+// only bytes appended since the last refresh are parsed.
+const fileCache = new Map();
+
+// Compact nudge state.
+let flashTimer = null;
+let flashUntil = 0;
+let lastNudgeAt = Date.now(); // first nudge comes one interval after activation
+
+// Plan usage state.
+let claudeJsonCache = { path: null, mtime: 0, reading: null };
+let apiReading = null; // { fetchedAtMs, utilization }
+let apiNextAllowedAt = 0;
+let apiInFlight = false;
+let apiLastError = null;
 
 function activate(context) {
   const align =
@@ -46,33 +60,64 @@ function getCfg() {
 
 function restartTimer() {
   if (timer) clearInterval(timer);
-  const ms = getCfg().get('refreshMs', 3000);
+  const ms = Math.max(500, getCfg().get('refreshMs', 3000));
   timer = setInterval(update, ms);
 }
 
-function projectsDir() {
-  return path.join(os.homedir(), '.claude', 'projects');
+// ---------------------------------------------------------------------------
+// Paths (respect CLAUDE_CONFIG_DIR everywhere)
+// ---------------------------------------------------------------------------
+
+function configDir() {
+  return process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 }
 
-// All *.jsonl session logs under ~/.claude/projects, with mtime.
+function projectsDir() {
+  return path.join(configDir(), 'projects');
+}
+
+// Claude Code keeps its global state file next to the config dir when
+// CLAUDE_CONFIG_DIR is set, otherwise in the home directory.
+function claudeJsonCandidates() {
+  const out = [];
+  if (process.env.CLAUDE_CONFIG_DIR) out.push(path.join(process.env.CLAUDE_CONFIG_DIR, '.claude.json'));
+  out.push(path.join(os.homedir(), '.claude.json'));
+  return out;
+}
+
+function credentialsPath() {
+  return path.join(configDir(), '.credentials.json');
+}
+
+// Session transcripts are named <uuid>.jsonl. Anything else in the folder
+// (e.g. sync-tool conflict copies) would double-count, so skip it.
+const SESSION_FILE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jsonl$/i;
+
+// All session logs under <config>/projects, with mtime and size.
 function allLogs() {
   const root = projectsDir();
   const out = [];
-  if (!fs.existsSync(root)) return out;
-  for (const d of fs.readdirSync(root)) {
-    const dir = path.join(root, d);
-    let st;
+  let dirs;
+  try {
+    dirs = fs.readdirSync(root, { withFileTypes: true });
+  } catch (_) {
+    return out;
+  }
+  for (const d of dirs) {
+    if (!d.isDirectory()) continue;
+    const dir = path.join(root, d.name);
+    let files;
     try {
-      st = fs.statSync(dir);
+      files = fs.readdirSync(dir);
     } catch (_) {
       continue;
     }
-    if (!st.isDirectory()) continue;
-    for (const f of fs.readdirSync(dir)) {
-      if (!f.endsWith('.jsonl')) continue;
+    for (const f of files) {
+      if (!SESSION_FILE.test(f)) continue;
       const p = path.join(dir, f);
       try {
-        out.push({ path: p, mtime: fs.statSync(p).mtimeMs, project: d });
+        const st = fs.statSync(p);
+        out.push({ path: p, mtime: st.mtimeMs, size: st.size, project: d.name });
       } catch (_) {
         /* ignore */
       }
@@ -83,188 +128,340 @@ function allLogs() {
 
 // Claude Code stores a project's sessions under a folder whose name is the
 // project path with every non-alphanumeric char replaced by '-'.
-// e.g. /Users/me/src/app  ->  -Users-me-src-app
-function workspaceProjectDir() {
-  const folders = vscode.workspace.workspaceFolders;
-  if (!folders || !folders.length) return null;
-  const p = folders[0].uri.fsPath;
+// e.g. /Users/me/src/app -> -Users-me-src-app, W:\dev\app -> W--dev-app.
+// Names over 200 chars are truncated and get a hash suffix, so for those we
+// match on the 200-char prefix.
+const MAX_DIR_NAME = 200;
+
+function encodeProjectPath(p) {
   return p.replace(/[^A-Za-z0-9]/g, '-');
 }
 
-// Logs limited to the current VS Code workspace's project, if we can find it.
-// Falls back to all logs when there is no workspace or no matching folder.
+function workspaceTargets() {
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || !folders.length) return [];
+  return folders.map((f) => encodeProjectPath(f.uri.fsPath).toLowerCase());
+}
+
+// VS Code lowercases the Windows drive letter in fsPath while Claude Code may
+// not (both `w--x` and `W--x` folders occur), so compare case-insensitively.
+function matchesTarget(project, targets) {
+  const name = project.toLowerCase();
+  return targets.some((t) =>
+    t.length > MAX_DIR_NAME ? name.startsWith(t.slice(0, MAX_DIR_NAME)) : name === t
+  );
+}
+
+// Logs limited to the current VS Code workspace's project(s), if we can find
+// them. Falls back to all logs when there is no workspace or no matching folder.
 function scopedLogs(logs) {
-  if (getCfg().get('scope', 'workspace') !== 'workspace') return logs;
-  const target = workspaceProjectDir();
-  if (!target) return logs;
-  const matched = logs.filter((l) => l.project === target);
-  return matched.length ? matched : logs;
+  if (getCfg().get('scope', 'workspace') !== 'workspace') return { logs, matched: false };
+  const targets = workspaceTargets();
+  if (!targets.length) return { logs, matched: false };
+  const matched = logs.filter((l) => matchesTarget(l.project, targets));
+  return matched.length ? { logs: matched, matched: true } : { logs, matched: false };
 }
 
 function latestLog(logs) {
   let best = null;
-  let bestT = 0;
-  for (const l of logs) {
-    if (l.mtime > bestT) {
-      bestT = l.mtime;
-      best = l.path;
-    }
-  }
+  for (const l of logs) if (!best || l.mtime > best.mtime) best = l;
   return best;
 }
+
+// ---------------------------------------------------------------------------
+// Transcript scanning
+// ---------------------------------------------------------------------------
 
 function usageOf(o) {
   return (o && o.message && o.message.usage) || (o && o.usage) || null;
 }
 
-// Known model context-window sizes (tokens). Used to auto-pick the right
-// denominator instead of assuming 200k. Matched by substring on the model id.
+function localDayKey(ms) {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
+function freshEntry() {
+  return {
+    size: 0,
+    mtime: 0,
+    offset: 0,
+    seen: new Set(), // message ids already counted (one message spans several lines)
+    total: 0,
+    byDay: {},
+    last: null, // last main-chain usage record: { tokens, model, ts }
+    lastTtlMin: null, // TTL of the last cache write: 60 or 5
+    compactAfterLast: null, // compact_boundary seen after `last`: { ts, preTokens }
+  };
+}
+
+function processLine(entry, line) {
+  let o;
+  try {
+    o = JSON.parse(line);
+  } catch (_) {
+    return; // partial or malformed line
+  }
+
+  if (o.type === 'system' && o.subtype === 'compact_boundary') {
+    const meta = o.compactMetadata || {};
+    entry.compactAfterLast = {
+      ts: Date.parse(o.timestamp) || Date.now(),
+      preTokens: meta.preTokens || null,
+    };
+    return;
+  }
+
+  const u = usageOf(o);
+  if (!u || u.input_tokens == null) return;
+  const model = (o.message && o.message.model) || o.model || null;
+  // Claude Code writes zero-usage "<synthetic>" messages for local errors.
+  if (model === '<synthetic>') return;
+
+  const ts = Date.parse(o.timestamp) || 0;
+  const id = (o.message && o.message.id) || o.requestId || o.uuid;
+
+  // Totals: count each API message once.
+  if (!id || !entry.seen.has(id)) {
+    if (id) entry.seen.add(id);
+    const sum =
+      (u.input_tokens || 0) +
+      (u.output_tokens || 0) +
+      (u.cache_creation_input_tokens || 0) +
+      (u.cache_read_input_tokens || 0);
+    entry.total += sum;
+    if (ts) {
+      const k = localDayKey(ts);
+      entry.byDay[k] = (entry.byDay[k] || 0) + sum;
+    }
+  }
+
+  // Context and cache state come from the main chain only.
+  if (o.isSidechain) return;
+  entry.last = {
+    // Same formula as Claude Code's own used_percentage.
+    tokens:
+      (u.input_tokens || 0) +
+      (u.cache_read_input_tokens || 0) +
+      (u.cache_creation_input_tokens || 0),
+    model,
+    ts,
+  };
+  entry.compactAfterLast = null;
+  const cc = u.cache_creation;
+  if (cc) {
+    if (cc.ephemeral_1h_input_tokens > 0) entry.lastTtlMin = 60;
+    else if (cc.ephemeral_5m_input_tokens > 0) entry.lastTtlMin = 5;
+  }
+}
+
+// Bring the cache entry for a log up to date, reading only what was appended.
+function scanFile(l) {
+  let entry = fileCache.get(l.path);
+  if (entry && entry.size === l.size && entry.mtime === l.mtime) return entry;
+  if (!entry || l.size < entry.offset) entry = freshEntry(); // new or rewritten
+
+  if (l.size > entry.offset) {
+    let fd;
+    try {
+      fd = fs.openSync(l.path, 'r');
+      const len = l.size - entry.offset;
+      const buf = Buffer.allocUnsafe(len);
+      const read = fs.readSync(fd, buf, 0, len, entry.offset);
+      // Only consume complete lines; a trailing partial line is re-read next time.
+      const lastNl = buf.lastIndexOf(0x0a, read - 1);
+      if (lastNl >= 0) {
+        const text = buf.toString('utf8', 0, lastNl);
+        for (const line of text.split('\n')) if (line) processLine(entry, line);
+        entry.offset += lastNl + 1;
+      }
+    } catch (_) {
+      /* unreadable right now; retry next refresh */
+    } finally {
+      if (fd !== undefined) fs.closeSync(fd);
+    }
+  }
+  entry.size = l.size;
+  entry.mtime = l.mtime;
+  fileCache.set(l.path, entry);
+  return entry;
+}
+
+// Scan every log, return per-project totals and today's totals.
+function collectStats(logs) {
+  const today = localDayKey(Date.now());
+  const perAll = {};
+  const perToday = {};
+  let todayTotal = 0;
+  const live = new Set();
+  for (const l of logs) {
+    live.add(l.path);
+    const e = scanFile(l);
+    if (e.total > 0) perAll[l.project] = (perAll[l.project] || 0) + e.total;
+    const t = e.byDay[today] || 0;
+    if (t > 0) {
+      perToday[l.project] = (perToday[l.project] || 0) + t;
+      todayTotal += t;
+    }
+  }
+  for (const p of fileCache.keys()) if (!live.has(p)) fileCache.delete(p);
+  const sorted = (o) =>
+    Object.entries(o)
+      .map(([project, tokens]) => ({ project, tokens }))
+      .sort((a, b) => b.tokens - a.tokens);
+  return { projects: sorted(perAll), todayTotal, todayByProject: sorted(perToday) };
+}
+
+// ---------------------------------------------------------------------------
+// Context window
+// ---------------------------------------------------------------------------
+
+// Known model context-window sizes (tokens), matched by substring on the model
+// id. Source: Anthropic model table (2026-10). Current models are all 1M.
 const MODEL_WINDOWS = [
-  [/opus-4-8|opus-4-7|opus-4-6|opus-4-5/, 1000000],
-  [/sonnet-5|sonnet-4-6|sonnet-4-5/, 1000000],
-  [/fable-5|mythos-5/, 1000000],
-  [/haiku-4-5/, 200000],
+  [/haiku-4-5|opus-4-5|sonnet-4-5|opus-4-1|opus-4-2025|sonnet-4-2025|claude-3/, 200000],
+  [/fable-5|mythos-5|opus-5|opus-4-[678]|sonnet-5|sonnet-4-6|haiku-5/, 1000000],
 ];
 
 function windowForModel(model) {
   if (!model) return null;
-  for (const [re, win] of MODEL_WINDOWS) {
-    if (re.test(model)) return win;
-  }
+  if (/\[1m\]/i.test(model)) return 1000000;
+  for (const [re, win] of MODEL_WINDOWS) if (re.test(model)) return win;
   return null;
 }
 
-// Tokens currently sitting in the context window (last usage record), plus the
-// model that produced it. Returns { tokens, model } or null.
-function lastContext(file) {
-  let lines;
-  try {
-    lines = fs.readFileSync(file, 'utf8').trim().split('\n');
-  } catch (_) {
-    return null;
-  }
-  for (let i = lines.length - 1; i >= 0; i--) {
-    try {
-      const o = JSON.parse(lines[i]);
-      const u = usageOf(o);
-      if (u && u.input_tokens != null) {
-        return {
-          tokens:
-            (u.input_tokens || 0) +
-            (u.cache_read_input_tokens || 0) +
-            (u.cache_creation_input_tokens || 0),
-          model: (o.message && o.message.model) || o.model || null,
-        };
-      }
-    } catch (_) {
-      /* skip malformed line */
-    }
-  }
-  return null;
+// ---------------------------------------------------------------------------
+// Prompt cache (estimate)
+// ---------------------------------------------------------------------------
+
+function cacheState(entry, cfg) {
+  if (!entry || !entry.last || !entry.last.ts) return null;
+  const ttlMin = entry.lastTtlMin || cfg.get('cacheTtlMinutes', 60);
+  const fromRecord = !!entry.lastTtlMin;
+  const expiresAt = entry.last.ts + ttlMin * 60000;
+  const remainingMs = expiresAt - Date.now();
+  return { ttlMin, fromRecord, expiresAt, remainingMs, warm: remainingMs > 0 };
 }
 
-// Tokens processed today, total and broken down per project.
-// "Today" is the local date; entries are matched by their `timestamp` field.
-// Returns { total, byProject: [{project, tokens}] } or null when nothing today.
-function todayStats(logs) {
-  const now = new Date();
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+// ---------------------------------------------------------------------------
+// Plan usage (5-hour / 7-day)
+// ---------------------------------------------------------------------------
 
-  let total = 0;
-  let counted = false;
-  const perProject = {};
-
-  for (const l of logs) {
-    // Skip files not touched today at all (cheap pre-filter).
-    if (l.mtime < startOfDay) continue;
-    let lines;
+// Claude Code's last saved reading in .claude.json (`cachedUsageUtilization`).
+function readSavedUsage() {
+  for (const p of claudeJsonCandidates()) {
+    let st;
     try {
-      lines = fs.readFileSync(l.path, 'utf8').trim().split('\n');
+      st = fs.statSync(p);
     } catch (_) {
       continue;
     }
-    let sub = 0;
-    for (const line of lines) {
-      let o;
-      try {
-        o = JSON.parse(line);
-      } catch (_) {
-        continue;
-      }
-      const u = usageOf(o);
-      if (!u || u.input_tokens == null) continue;
-
-      // Only count entries whose timestamp is today.
-      if (o.timestamp) {
-        const t = Date.parse(o.timestamp);
-        if (isNaN(t) || t < startOfDay) continue;
-      }
-      sub +=
-        (u.input_tokens || 0) +
-        (u.output_tokens || 0) +
-        (u.cache_creation_input_tokens || 0) +
-        (u.cache_read_input_tokens || 0);
+    if (claudeJsonCache.path === p && claudeJsonCache.mtime === st.mtimeMs) return claudeJsonCache.reading;
+    let reading = null;
+    try {
+      const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+      const c = j.cachedUsageUtilization;
+      if (c && c.utilization) reading = { fetchedAtMs: c.fetchedAtMs || 0, utilization: c.utilization, source: 'Claude Code' };
+    } catch (_) {
+      /* file mid-write; keep the previous reading */
+      if (claudeJsonCache.path === p) return claudeJsonCache.reading;
     }
-    if (sub > 0) {
-      perProject[l.project] = (perProject[l.project] || 0) + sub;
-      total += sub;
-      counted = true;
-    }
+    claudeJsonCache = { path: p, mtime: st.mtimeMs, reading };
+    return reading;
   }
-  if (!counted) return null;
-  const byProject = Object.entries(perProject)
-    .map(([project, tokens]) => ({ project, tokens }))
-    .sort((a, b) => b.tokens - a.tokens);
-  return { total, byProject };
+  return null;
 }
 
-// Turn a Claude Code project-dir name (e.g. "-Users-me-src-my-app") into a
-// short, readable label. We can't perfectly decode (folder names contain
-// dashes), so show the tail.
-function projectLabel(dir) {
-  let s = String(dir).replace(/^-+/, '');
-  if (s.length > 26) s = '…' + s.slice(-26);
-  return s;
-}
+// Optional fallback: the internal (undocumented) OAuth usage endpoint. Polled
+// sparingly, only while the window is focused, honouring Retry-After. The token
+// is read from the credentials file and never logged or displayed.
+function maybeFetchUsage(cfg, saved) {
+  if (!cfg.get('planUsage.apiFallback', false)) return;
+  if (apiInFlight || !vscode.window.state.focused) return;
+  const now = Date.now();
+  if (now < apiNextAllowedAt) return;
+  const staleMs = cfg.get('planUsage.staleMinutes', 15) * 60000;
+  const newest = Math.max((saved && saved.fetchedAtMs) || 0, (apiReading && apiReading.fetchedAtMs) || 0);
+  if (now - newest < staleMs) return;
 
-// All-time token totals for every project (input+output+cache across all
-// sessions). Per-file results are cached by mtime, so only changed logs are
-// re-read on each refresh.
-function allProjectStats(logs) {
-  const per = {};
-  for (const l of logs) {
-    let entry = fileTokenCache.get(l.path);
-    if (!entry || entry.mtime !== l.mtime) {
-      let tokens = 0;
-      let lines = [];
-      try {
-        lines = fs.readFileSync(l.path, 'utf8').trim().split('\n');
-      } catch (_) {
-        /* unreadable — treat as 0 */
-      }
-      for (const line of lines) {
-        let u;
-        try {
-          u = usageOf(JSON.parse(line));
-        } catch (_) {
-          continue;
+  let token;
+  try {
+    const c = JSON.parse(fs.readFileSync(credentialsPath(), 'utf8'));
+    const o = c.claudeAiOauth || {};
+    if (o.expiresAt && o.expiresAt < now) {
+      apiLastError = 'OAuth token expired (Claude Code refreshes it on its next request)';
+      apiNextAllowedAt = now + 5 * 60000;
+      return;
+    }
+    token = o.accessToken;
+  } catch (_) {
+    token = null;
+  }
+  if (!token) {
+    apiLastError = 'no credentials file (on macOS Claude Code keeps the token in the Keychain)';
+    apiNextAllowedAt = now + 60 * 60000;
+    return;
+  }
+
+  const pollMs = Math.max(2, cfg.get('planUsage.pollMinutes', 5)) * 60000;
+  apiNextAllowedAt = now + pollMs;
+  apiInFlight = true;
+  const req = https.request(
+    'https://api.anthropic.com/api/oauth/usage',
+    {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}`, 'anthropic-beta': 'oauth-2025-04-20', Accept: 'application/json' },
+      timeout: 15000,
+    },
+    (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => (body += c));
+      res.on('end', () => {
+        apiInFlight = false;
+        if (res.statusCode === 429) {
+          const ra = parseInt(res.headers['retry-after'], 10);
+          apiNextAllowedAt = Date.now() + Math.max(pollMs, (isNaN(ra) ? 600 : ra) * 1000);
+          apiLastError = 'rate limited (429)';
+          return;
         }
-        if (!u || u.input_tokens == null) continue;
-        tokens +=
-          (u.input_tokens || 0) +
-          (u.output_tokens || 0) +
-          (u.cache_creation_input_tokens || 0) +
-          (u.cache_read_input_tokens || 0);
-      }
-      entry = { mtime: l.mtime, tokens };
-      fileTokenCache.set(l.path, entry);
+        if (res.statusCode !== 200) {
+          apiLastError = `HTTP ${res.statusCode}`;
+          return;
+        }
+        try {
+          const j = JSON.parse(body);
+          const u = j.utilization || j;
+          if (u.five_hour || u.seven_day) {
+            apiReading = { fetchedAtMs: Date.now(), utilization: u, source: 'usage API' };
+            apiLastError = null;
+            update();
+          }
+        } catch (_) {
+          apiLastError = 'unexpected response';
+        }
+      });
     }
-    if (entry.tokens > 0) per[l.project] = (per[l.project] || 0) + entry.tokens;
-  }
-  return Object.entries(per)
-    .map(([project, tokens]) => ({ project, tokens }))
-    .sort((a, b) => b.tokens - a.tokens);
+  );
+  req.on('timeout', () => req.destroy(new Error('timeout')));
+  req.on('error', (e) => {
+    apiInFlight = false;
+    apiLastError = e.message;
+  });
+  req.end();
 }
+
+function planUsage(cfg) {
+  const saved = readSavedUsage();
+  maybeFetchUsage(cfg, saved);
+  const candidates = [saved, apiReading].filter(Boolean);
+  if (!candidates.length) return null;
+  return candidates.reduce((a, b) => (b.fetchedAtMs > a.fetchedAtMs ? b : a));
+}
+
+// ---------------------------------------------------------------------------
+// Formatting
+// ---------------------------------------------------------------------------
 
 function bar(pct, width) {
   const filled = Math.max(0, Math.min(width, Math.round((pct / 100) * width)));
@@ -279,101 +476,225 @@ function fmt(n) {
   return String(n);
 }
 
+function fmtDuration(ms) {
+  const m = Math.max(0, Math.round(ms / 60000));
+  if (m <= 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 48) return `${h}h ${m % 60}m`;
+  return `${Math.floor(h / 24)}d ${h % 24}h`;
+}
+
+function fmtTime(ms) {
+  return new Date(ms).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+// Turn a Claude Code project-dir name (e.g. "-Users-me-src-my-app") into a
+// short, readable label. We can't perfectly decode (folder names contain
+// dashes), so show the tail.
+function projectLabel(dir) {
+  let s = String(dir).replace(/^-+/, '');
+  if (s.length > 26) s = '…' + s.slice(-26);
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Compact nudge
+// ---------------------------------------------------------------------------
+
+function startFlash(seconds) {
+  stopFlash();
+  flashUntil = Date.now() + seconds * 1000;
+  let on = false;
+  item.text = '$(fold) Compact before closing';
+  item.tooltip = 'Context is large and the prompt cache is still warm: running /compact now is cheap. ' +
+    'Once the cache expires, the next turn re-reads the full context.';
+  flashTimer = setInterval(() => {
+    if (Date.now() >= flashUntil) {
+      stopFlash();
+      update();
+      return;
+    }
+    on = !on;
+    item.backgroundColor = on ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
+  }, 500);
+}
+
+function stopFlash() {
+  if (flashTimer) clearInterval(flashTimer);
+  flashTimer = null;
+  flashUntil = 0;
+}
+
+function maybeNudge(cfg, ctxTokens, cache, compacted) {
+  if (!cfg.get('compactNudge.enabled', true)) return false;
+  if (compacted || ctxTokens == null || !cache || !cache.warm) return false;
+  if (ctxTokens < cfg.get('compactNudge.minContextTokens', 100000)) return false;
+  const intervalMs = Math.max(1, cfg.get('compactNudge.intervalMinutes', 5)) * 60000;
+  if (Date.now() - lastNudgeAt < intervalMs) return false;
+  lastNudgeAt = Date.now();
+  startFlash(Math.max(1, cfg.get('compactNudge.flashSeconds', 10)));
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Render
+// ---------------------------------------------------------------------------
+
 function update() {
   if (!visible) {
+    stopFlash();
     item.hide();
     return;
   }
+  if (flashTimer) return; // the flash restores the normal display when it ends
 
   const cfg = getCfg();
   const cfgMax = cfg.get('contextWindow', 1000000);
   const autoDetect = cfg.get('autoDetectContextWindow', true);
-  const width = cfg.get('barWidth', 12);
-  const showToday = cfg.get('showTodayUsage', true);
+  const width = cfg.get('barWidth', 6);
+  const showContext = cfg.get('showContext', true);
+  const showCache = cfg.get('showCache', true);
+  const showPlan = cfg.get('showPlanUsage', true);
+  const showToday = cfg.get('showTodayUsage', false);
 
   const logs = allLogs();
-  // Context = the current session: newest log in THIS workspace's project.
-  const file = latestLog(scopedLogs(logs));
+  const stats = collectStats(logs); // brings every file's cache entry up to date
+  const scoped = scopedLogs(logs);
+  const log = latestLog(scoped.logs);
+  const entry = log ? fileCache.get(log.path) : null;
 
-  // --- Context-window part ---
-  let ctxText;
-  let ctxTip;
+  const parts = [];
+  const tip = ['### Claude Usage'];
   let bg;
-  if (!file) {
-    ctxText = 'Claude: no log';
-    ctxTip = 'No ~/.claude/projects/**/*.jsonl found yet.';
+
+  // --- Context window ---
+  let ctxTokens = null;
+  let compacted = false;
+  if (!log) {
+    parts.push('Claude: no log');
+    tip.push(`No session logs found under \`${projectsDir()}\`.`);
+  } else if (!entry || !entry.last) {
+    parts.push('Claude: --');
+    tip.push('No usage record found in the latest session log yet.');
   } else {
-    const ctx = lastContext(file);
-    if (ctx == null) {
-      ctxText = 'Claude: --';
-      ctxTip = 'No usage record found in the latest session log.';
+    const last = entry.last;
+    ctxTokens = last.tokens;
+    compacted = !!entry.compactAfterLast;
+    const detected = autoDetect ? windowForModel(last.model) : null;
+    let max = detected || cfgMax;
+    let windowNote = detected ? 'auto-detected from model' : autoDetect ? 'unknown model, using `claudeMonitor.contextWindow`' : 'from `claudeMonitor.contextWindow`';
+    if (ctxTokens > max && max < 1000000) {
+      max = 1000000;
+      windowNote = 'assumed 1M because usage exceeds the detected window';
+    }
+    const usedPct = Math.min(100, (ctxTokens / max) * 100);
+    const leftPct = 100 - usedPct;
+
+    if (compacted) {
+      if (showContext) parts.push('Ctx compacted');
+      const pre = entry.compactAfterLast.preTokens;
+      tip.push(
+        `**Context window**\n\n` +
+          `- Compacted at ${fmtTime(entry.compactAfterLast.ts)}${pre ? ` (was ${pre.toLocaleString()} tokens)` : ''}\n` +
+          `- New size is known after the next response.\n` +
+          `- Model: \`${last.model || 'unknown'}\``
+      );
     } else {
-      const used = ctx.tokens;
-      const detected = autoDetect ? windowForModel(ctx.model) : null;
-      const max = detected || cfgMax;
-      const usedPct = Math.min(100, (used / max) * 100);
-      const leftPct = 100 - usedPct;
-      ctxText = `Context ${bar(usedPct, width)} ${usedPct.toFixed(0)}% used`;
-      ctxTip =
-        `**Claude context window**\n\n` +
-        `- Used: ${used.toLocaleString()} / ${max.toLocaleString()} tokens (${usedPct.toFixed(1)}%)\n` +
-        `- Remaining: ${(max - used).toLocaleString()} tokens (${leftPct.toFixed(1)}%)\n` +
-        `- Model: \`${ctx.model || 'unknown'}\`${detected ? ' (window auto-detected)' : ''}\n` +
-        `- Source: \`${path.basename(file)}\``;
-      bg =
-        leftPct < 10
-          ? new vscode.ThemeColor('statusBarItem.errorBackground')
-          : leftPct < 25
-            ? new vscode.ThemeColor('statusBarItem.warningBackground')
-            : undefined;
+      if (showContext) parts.push(`Ctx ${bar(usedPct, width)} ${usedPct.toFixed(0)}%`);
+      tip.push(
+        `**Context window**\n\n` +
+          `- Used: ${ctxTokens.toLocaleString()} / ${max.toLocaleString()} tokens (${usedPct.toFixed(1)}%)\n` +
+          `- Remaining: ${(max - ctxTokens).toLocaleString()} tokens (${leftPct.toFixed(1)}%)\n` +
+          `- Model: \`${last.model || 'unknown'}\` (window ${windowNote})`
+      );
+      if (showContext) {
+        bg =
+          leftPct < 10
+            ? new vscode.ThemeColor('statusBarItem.errorBackground')
+            : leftPct < 25
+              ? new vscode.ThemeColor('statusBarItem.warningBackground')
+              : undefined;
+      }
     }
   }
 
-  // --- Today's cumulative usage part ---
-  let todayText = '';
-  let todayLine = '';
-  if (showToday) {
-    const stats = todayStats(logs);
-    if (stats == null) {
-      todayText = '  ·  Today --';
+  // --- Prompt cache ---
+  const cache = cacheState(entry, cfg);
+  if (cache) {
+    if (showCache) parts.push(cache.warm ? `cache ${fmtDuration(cache.remainingMs)}` : 'cache cold');
+    const ttlSrc = cache.fromRecord ? 'from the last cache write' : 'from `claudeMonitor.cacheTtlMinutes`';
+    tip.push(
+      `**Prompt cache** _(estimate)_\n\n` +
+        (cache.warm
+          ? `- Warm, expires ~${fmtTime(cache.expiresAt)} (in ${fmtDuration(cache.remainingMs)})\n`
+          : `- Cold since ~${fmtTime(cache.expiresAt)}. Next turn re-caches ~${fmt(ctxTokens || 0)} tokens.\n`) +
+        `- Last response: ${fmtTime(entry.last.ts)}\n` +
+        `- TTL: ${cache.ttlMin} min (${ttlSrc})`
+    );
+  }
+
+  // --- Plan usage ---
+  if (showPlan) {
+    const r = planUsage(cfg);
+    const u = r && r.utilization;
+    const w5 = u && u.five_hour;
+    const w7 = u && u.seven_day;
+    if (w5 || w7) {
+      const pct = (w) => (w && w.utilization != null ? `${Math.round(w.utilization)}%` : '--');
+      parts.push(`5h ${pct(w5)} 7d ${pct(w7)}`);
+      const ageMs = Date.now() - r.fetchedAtMs;
+      const stale = ageMs > cfg.get('planUsage.staleMinutes', 15) * 60000;
+      const reset = (w) => (w && w.resets_at ? `, resets ${fmtTime(Date.parse(w.resets_at))}` : '');
+      tip.push(
+        `**Plan usage**\n\n` +
+          `- 5-hour: ${pct(w5)}${reset(w5)}\n` +
+          `- 7-day: ${pct(w7)}${reset(w7)}\n` +
+          `- Reading from ${r.source}, ${fmtDuration(ageMs)} ago${stale ? ' — **stale**' : ''}` +
+          (apiLastError && cfg.get('planUsage.apiFallback', false) ? `\n- API fallback: ${apiLastError}` : '')
+      );
     } else {
-      todayText = `  ·  Today ${fmt(stats.total)} tok`;
-      todayLine = `\n\n**Today:** ${stats.total.toLocaleString()} tokens`;
+      tip.push('**Plan usage**\n\n- No saved reading yet. Run `/usage` in Claude Code once.');
     }
   }
+
+  // --- Today ---
+  if (showToday) parts.push(stats.todayTotal ? `Today ${fmt(stats.todayTotal)}` : 'Today --');
+  if (stats.todayTotal) tip.push(`**Today:** ${stats.todayTotal.toLocaleString()} tokens`);
 
   // --- All-projects breakdown (visualized) ---
-  let dashTip = '';
-  const projects = allProjectStats(logs);
-  if (projects.length) {
-    const maxTok = projects[0].tokens || 1;
-    const rows = projects.map((p) => {
+  if (stats.projects.length) {
+    const maxTok = stats.projects[0].tokens || 1;
+    const rows = stats.projects.map((p) => {
       const b = bar(Math.round((p.tokens / maxTok) * 100), 10);
       return `${b}  ${fmt(p.tokens).padStart(7)}  ${projectLabel(p.project)}`;
     });
-    dashTip =
-      `\n\n**All projects — token usage** (${projects.length})\n\n` +
-      '```\n' +
-      rows.join('\n') +
-      '\n```' +
-      `\n\n_Consumption (input+output+cache), not remaining plan quota — run \`/usage\` for that._`;
+    tip.push(
+      `**All projects — token usage** (${stats.projects.length})\n\n` +
+        '```\n' +
+        rows.join('\n') +
+        '\n```'
+    );
   }
 
-  // Combine into ONE item so nothing can be inserted between the two parts.
-  item.text = ctxText + todayText;
-  item.tooltip = new vscode.MarkdownString(
-    `### Claude Token Usage\n\n` +
-      ctxTip +
-      todayLine +
-      dashTip +
-      `\n\n_Click the item to refresh._`
-  );
+  if (log) {
+    tip.push(
+      `Source: \`${log.project}/${path.basename(log.path)}\`` +
+        (scoped.matched ? '' : ' _(no session for this workspace; newest overall)_')
+    );
+  }
+  tip.push('_Context, cache and plan numbers are estimates from local files. Click to refresh._');
+
+  item.text = parts.join('  ·  ');
+  item.tooltip = new vscode.MarkdownString(tip.join('\n\n'));
   item.backgroundColor = bg;
   item.show();
+
+  maybeNudge(cfg, ctxTokens, cache, compacted);
 }
 
 function deactivate() {
   if (timer) clearInterval(timer);
+  stopFlash();
 }
 
 module.exports = { activate, deactivate };

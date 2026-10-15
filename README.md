@@ -1,56 +1,68 @@
-# Claude Token Usage Bar
+# Claude Usage Bar Plus
 
-**English** · [한국어](https://github.com/nayawoonge/vscode-claude-token-usage-bar/blob/main/README.ko.md)
+A fork of [Claude Token Usage Bar](https://github.com/nayawoonge/vscode-claude-token-usage-bar) by nayawoonge (MIT).
 
-A tiny VS Code extension that shows your **Claude Code context-window usage** and **today's token consumption** in one status bar item.
+One status bar item for Claude Code:
 
-![Status bar screenshot](https://raw.githubusercontent.com/nayawoonge/vscode-claude-token-usage-bar/main/images/screenshot.png)
+```
+Ctx ▰▰▰▱▱▱ 48%  ·  cache 37m  ·  5h 23% 7d 41%
+```
 
-The item turns **yellow** when the context window drops below 25% free and **red** below 10%, so you get a warning before you run out of room. Both parts live in a **single status bar item**, so nothing (Copilot, encoding, Ln/Col…) can wedge between them.
+- **Context:** how full the current session's context window is. The window size comes from the model (current models have 1M; Haiku 4.5 has 200k). The item turns yellow below 25% free and red below 10% free. After `/compact` it shows `Ctx compacted` until the next response.
+- **Cache:** estimated minutes left before the prompt cache expires, or `cache cold`. The TTL comes from the last cache write in the transcript (1 h or 5 min), or from `claudeMonitor.cacheTtlMinutes`.
+- **Compact nudge:** while the context is large and the cache is still warm, the item periodically flashes **Compact before closing**. Compacting is cheap then; once the cache has expired, the next turn re-reads the whole context anyway. An extension can't tell when VS Code is about to close, so this is a periodic reminder.
+- **Plan usage:** 5-hour and 7-day utilization (Pro/Max) from Claude Code's last saved reading in `.claude.json`. Claude Code updates it during normal use and on `/usage`. Hover the item to see reset times; readings older than `planUsage.staleMinutes` are marked stale.
 
-**Hover** the item for a mini dashboard: the current session's context window (used / remaining / model) plus every project's total token usage as a bar chart.
+Hover the item for details, plus a per-project token chart.
 
-> **What about my plan's remaining quota?** That isn't available to any extension — Claude Code's `/usage` command is interactive-only and the subscription allowance isn't exposed anywhere a script can read. Run `/usage` inside Claude Code, or check the [Console](https://platform.claude.com/usage). This extension shows *context room* and *today's consumption*, not remaining plan quota.
+All numbers are estimates from Claude Code's local files (`~/.claude`, or `$CLAUDE_CONFIG_DIR`). Their format isn't a stable public interface and may change with a Claude Code update.
 
-## How it works
+## Optional: plan usage from the API
 
-- **Context** — reads the newest Claude Code session for your current project and shows how full its context window is. The window size is detected from the session's model automatically (e.g. Opus 4.8 = 1M tokens, Haiku 4.5 = 200k).
-- **Today** — sums all tokens processed today across your sessions, as a running consumption figure.
+`claudeMonitor.planUsage.apiFallback` (off by default) fetches plan usage from Anthropic's internal `api/oauth/usage` endpoint when the saved reading is stale. It uses Claude Code's OAuth token from `.credentials.json`.
 
-> These are local estimates and may drift after a Claude Code update.
-
-## Install
-
-### From the Marketplace (recommended)
-
-Open the **Extensions** panel (`Cmd/Ctrl+Shift+X`), search **"Claude Token Usage Bar"**, and click **Install**. Updates arrive automatically.
-
-### From a `.vsix`
-
-1. Download the latest `.vsix` from [Releases](https://github.com/nayawoonge/vscode-claude-token-usage-bar/releases).
-2. **Extensions** panel → `···` menu → **Install from VSIX…** → pick the file.
-
-## Updating
-
-- **Marketplace:** updates are automatic. To force it: Extensions panel → the extension → **Update**.
-- **`.vsix`:** download the newer `.vsix` from [Releases](https://github.com/nayawoonge/vscode-claude-token-usage-bar/releases) and **Install from VSIX…** again. Reload VS Code when prompted.
+- The endpoint is undocumented and may change or disappear.
+- It has a small hourly budget shared with Claude Code. The extension polls at most every `planUsage.pollMinutes` (min. 2), only while the window is focused, and honours `Retry-After`.
+- On macOS Claude Code keeps the token in the Keychain, so the fallback is skipped there.
+- The token is never logged or displayed.
 
 ## Settings
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `claudeMonitor.autoDetectContextWindow` | `true` | Detect the window size from the session's model (Opus 4.8 = 1M, Haiku 4.5 = 200k). |
-| `claudeMonitor.contextWindow` | `1000000` | Fallback window size (tokens) used when the model can't be detected. |
-| `claudeMonitor.scope` | `workspace` | `workspace` = current project's session; `global` = newest session anywhere. |
-| `claudeMonitor.showTodayUsage` | `true` | Show today's cumulative token usage next to the context bar. |
-| `claudeMonitor.barWidth` | `12` | Bar width in characters. |
-| `claudeMonitor.alignment` | `right` | `left` or `right` side of the status bar. |
-| `claudeMonitor.refreshMs` | `3000` | Refresh interval (ms). |
+| `claudeMonitor.showContext` | `true` | Show the context gauge. |
+| `claudeMonitor.showCache` | `true` | Show the cache state. |
+| `claudeMonitor.showPlanUsage` | `true` | Show 5h / 7d plan usage. |
+| `claudeMonitor.showTodayUsage` | `false` | Show today's token total. |
+| `claudeMonitor.autoDetectContextWindow` | `true` | Detect the window size from the model. |
+| `claudeMonitor.contextWindow` | `1000000` | Fallback window size for unknown models. |
+| `claudeMonitor.cacheTtlMinutes` | `60` | TTL when the transcript doesn't say. Use 5 on usage credits or an API key. |
+| `claudeMonitor.compactNudge.enabled` | `true` | Enable the nudge. |
+| `claudeMonitor.compactNudge.minContextTokens` | `100000` | Minimum context size to nudge. |
+| `claudeMonitor.compactNudge.intervalMinutes` | `5` | Minutes between nudges. |
+| `claudeMonitor.compactNudge.flashSeconds` | `10` | Flash duration. |
+| `claudeMonitor.planUsage.staleMinutes` | `15` | Age after which a reading counts as stale. |
+| `claudeMonitor.planUsage.apiFallback` | `false` | See above. |
+| `claudeMonitor.planUsage.pollMinutes` | `5` | Minimum minutes between API requests. |
+| `claudeMonitor.scope` | `workspace` | `workspace` = this project's newest session; `global` = newest anywhere. |
+| `claudeMonitor.barWidth` | `6` | Gauge width in characters. |
+| `claudeMonitor.alignment` | `right` | Status bar side. |
+| `claudeMonitor.refreshMs` | `3000` | Refresh interval (ms). Only newly appended log data is read. |
 
-## Commands
+This fork uses the same `claudeMonitor.*` setting and command IDs as the original, so don't install both at once.
 
-- **Claude Token Usage Bar: Refresh Now** — force an immediate update (also runs when you click the item).
-- **Claude Token Usage Bar: Show/Hide** — toggle the status bar item.
+## Known limits
+
+- The extension can't run `/compact` itself; no hook or extension API can trigger it.
+- VS Code can't veto a window close. `"window.confirmBeforeClose": "always"` gives a generic pause.
+
+## Build
+
+```
+npx @vscode/vsce package
+```
+
+Then install the `.vsix` via **Extensions → ··· → Install from VSIX…**.
 
 ## License
 

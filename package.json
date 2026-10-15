@@ -1,19 +1,19 @@
 {
-  "name": "claude-token-usage-bar",
-  "displayName": "Claude Token Usage Bar",
-  "description": "Show Claude Code context-window usage and today's token consumption in the VS Code status bar.",
-  "version": "0.5.1",
-  "publisher": "nayawoonge",
+  "name": "claude-usage-bar-plus",
+  "displayName": "Claude Usage Bar Plus",
+  "description": "Claude Code context-window fill, prompt cache state, a compact nudge and 5-hour / 7-day plan usage in one status bar item.",
+  "version": "0.6.0",
+  "publisher": "kaedinger",
   "license": "MIT",
   "icon": "images/icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/nayawoonge/vscode-claude-token-usage-bar.git"
+    "url": "https://github.com/kaedinger/vscode-claude-token-usage-bar.git"
   },
   "bugs": {
-    "url": "https://github.com/nayawoonge/vscode-claude-token-usage-bar/issues"
+    "url": "https://github.com/kaedinger/vscode-claude-token-usage-bar/issues"
   },
-  "homepage": "https://github.com/nayawoonge/vscode-claude-token-usage-bar#readme",
+  "homepage": "https://github.com/kaedinger/vscode-claude-token-usage-bar#readme",
   "categories": [
     "Other",
     "Visualization"
@@ -23,6 +23,7 @@
     "claude-code",
     "token",
     "usage",
+    "cache",
     "monitor",
     "status bar"
   ],
@@ -37,15 +38,15 @@
     "commands": [
       {
         "command": "claudeMonitor.refresh",
-        "title": "Claude Token Usage Bar: Refresh Now"
+        "title": "Claude Usage Bar Plus: Refresh Now"
       },
       {
         "command": "claudeMonitor.toggle",
-        "title": "Claude Token Usage Bar: Show/Hide"
+        "title": "Claude Usage Bar Plus: Show/Hide"
       }
     ],
     "configuration": {
-      "title": "Claude Token Usage Bar",
+      "title": "Claude Usage Bar Plus",
       "properties": {
         "claudeMonitor.contextWindow": {
           "type": "number",
@@ -55,25 +56,86 @@
         "claudeMonitor.autoDetectContextWindow": {
           "type": "boolean",
           "default": true,
-          "description": "Pick the context-window size from the session's model (e.g. Opus 4.8 = 1M, Haiku 4.5 = 200k). Falls back to claudeMonitor.contextWindow when the model is unknown."
+          "description": "Pick the context-window size from the session's model (current models = 1M, Haiku 4.5 = 200k). Falls back to claudeMonitor.contextWindow when the model is unknown."
         },
         "claudeMonitor.refreshMs": {
           "type": "number",
           "default": 3000,
           "minimum": 500,
-          "description": "How often to re-read the log and refresh the status bar, in milliseconds."
+          "description": "How often to check the logs and refresh the status bar, in milliseconds. Only newly appended data is read."
         },
         "claudeMonitor.barWidth": {
           "type": "number",
-          "default": 12,
+          "default": 6,
           "minimum": 4,
           "maximum": 40,
-          "description": "Width of the bar graph in characters."
+          "description": "Width of the context bar graph in characters."
+        },
+        "claudeMonitor.showContext": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the context-window gauge."
+        },
+        "claudeMonitor.showCache": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the estimated prompt cache state (minutes left, or cold)."
+        },
+        "claudeMonitor.showPlanUsage": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show 5-hour / 7-day plan usage (Pro/Max)."
         },
         "claudeMonitor.showTodayUsage": {
           "type": "boolean",
+          "default": false,
+          "description": "Show today's cumulative token usage."
+        },
+        "claudeMonitor.cacheTtlMinutes": {
+          "type": "number",
+          "default": 60,
+          "minimum": 1,
+          "description": "Prompt cache TTL used when the transcript doesn't say which TTL the last cache write used. 60 for Pro/Max within plan usage; 5 on usage credits or an API key."
+        },
+        "claudeMonitor.compactNudge.enabled": {
+          "type": "boolean",
           "default": true,
-          "description": "Show today's cumulative token usage next to the context bar."
+          "description": "Periodically flash 'Compact before closing' while the context is large and the cache is still warm."
+        },
+        "claudeMonitor.compactNudge.minContextTokens": {
+          "type": "number",
+          "default": 100000,
+          "minimum": 0,
+          "description": "Only nudge when the context holds at least this many tokens."
+        },
+        "claudeMonitor.compactNudge.intervalMinutes": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "description": "Minutes between nudges."
+        },
+        "claudeMonitor.compactNudge.flashSeconds": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "description": "How long each nudge flashes."
+        },
+        "claudeMonitor.planUsage.staleMinutes": {
+          "type": "number",
+          "default": 15,
+          "minimum": 1,
+          "description": "Mark the plan usage reading as stale in the tooltip when it is older than this."
+        },
+        "claudeMonitor.planUsage.apiFallback": {
+          "type": "boolean",
+          "default": false,
+          "description": "When Claude Code's saved reading is stale, fetch plan usage from Anthropic's internal OAuth usage endpoint using Claude Code's token. Undocumented; may break. Shares a small rate budget with Claude Code."
+        },
+        "claudeMonitor.planUsage.pollMinutes": {
+          "type": "number",
+          "default": 5,
+          "minimum": 2,
+          "description": "Minimum minutes between API fallback requests (only while the window is focused)."
         },
         "claudeMonitor.scope": {
           "type": "string",
@@ -83,10 +145,10 @@
           ],
           "default": "workspace",
           "enumDescriptions": [
-            "Context bar tracks the newest session of the currently open workspace's project (closest to 'current session').",
-            "Context bar tracks the newest session across all projects."
+            "Track the newest session of the currently open workspace's project (closest to 'current session').",
+            "Track the newest session across all projects."
           ],
-          "description": "Which session the context bar reflects."
+          "description": "Which session the context and cache parts reflect."
         },
         "claudeMonitor.alignment": {
           "type": "string",
@@ -101,8 +163,7 @@
     }
   },
   "scripts": {
-    "package": "vsce package",
-    "publish": "vsce publish"
+    "package": "vsce package"
   },
   "devDependencies": {
     "@vscode/vsce": "^3.2.0"
