@@ -2,7 +2,7 @@
   "name": "vscode-claude-token-usage-bar-ext",
   "displayName": "Claude Token Usage Bar Ext",
   "description": "Claude Code context-window fill, prompt cache state, a compact nudge and 5-hour / 7-day plan usage in one status bar item.",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "publisher": "kaedinger",
   "license": "MIT",
   "icon": "images/icon.png",
@@ -90,6 +90,11 @@
           "type": "boolean",
           "default": false,
           "description": "Show today's cumulative token usage."
+        },
+        "vscodeClaudeTokenUsageBarExt.showProjectChart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the per-project token chart in the tooltip. Turn off for a narrower tooltip."
         },
         "vscodeClaudeTokenUsageBarExt.cacheTtlMinutes": {
           "type": "number",

@@ -667,7 +667,7 @@ function update() {
   if (stats.todayTotal) tip.push(`**Today:** ${stats.todayTotal.toLocaleString()} tokens`);
 
   // --- All-projects breakdown (visualized) ---
-  if (stats.projects.length) {
+  if (cfg.get('showProjectChart', true) && stats.projects.length) {
     const maxTok = stats.projects[0].tokens || 1;
     const rows = stats.projects.map((p) => {
       const b = bar(Math.round((p.tokens / maxTok) * 100), 10);

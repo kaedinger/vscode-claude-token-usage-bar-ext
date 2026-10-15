@@ -48,6 +48,7 @@ Each release's `.vsix` is also attached to [GitHub Releases](https://github.com/
 | `vscodeClaudeTokenUsageBarExt.showCache` | `true` | Show the cache state. |
 | `vscodeClaudeTokenUsageBarExt.showPlanUsage` | `true` | Show 5h / 7d plan usage. |
 | `vscodeClaudeTokenUsageBarExt.showTodayUsage` | `false` | Show today's token total. |
+| `vscodeClaudeTokenUsageBarExt.showProjectChart` | `true` | Show the per-project chart in the tooltip. Off gives a narrower tooltip. |
 | `vscodeClaudeTokenUsageBarExt.autoDetectContextWindow` | `true` | Detect the window size from the model. |
 | `vscodeClaudeTokenUsageBarExt.contextWindow` | `1000000` | Fallback window size for unknown models. |
 | `vscodeClaudeTokenUsageBarExt.cacheTtlMinutes` | `60` | TTL when the transcript doesn't say. Use 5 on usage credits or an API key. |
