@@ -2,7 +2,7 @@
   "name": "vscode-claude-token-usage-bar-ext",
   "displayName": "Claude Token Usage Bar Ext",
   "description": "Claude Code context-window fill, prompt cache state, a compact nudge and 5-hour / 7-day plan usage in one status bar item.",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "publisher": "kaedinger",
   "license": "MIT",
   "icon": "images/icon.png",

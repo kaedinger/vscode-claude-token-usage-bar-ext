@@ -4,6 +4,7 @@
 *.vsix
 node_modules/**
 scripts/**
-images/screenshot.png
+images/**
+!images/icon.png
 PLAN.md
 .claude/**

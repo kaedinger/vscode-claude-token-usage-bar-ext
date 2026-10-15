@@ -4,9 +4,7 @@ A fork of [Claude Token Usage Bar](https://github.com/nayawoonge/vscode-claude-t
 
 One status bar item for Claude Code:
 
-```
-Ctx ▰▰▰▱▱▱ 48%  ·  cache 37m  ·  5h 23% 7d 41%
-```
+![Status bar item](images/screenshot.png)
 
 - **Context:** how full the current session's context window is. The window size comes from the model (current models have 1M; Haiku 4.5 has 200k). The item turns yellow below 25% free and red below 10% free. After `/compact` it shows `Ctx compacted` until the next response.
 - **Cache:** estimated minutes left before the prompt cache expires, or `cache cold`. The TTL comes from the last cache write in the transcript (1 h or 5 min), or from `vscodeClaudeTokenUsageBarExt.cacheTtlMinutes`.
@@ -14,6 +12,16 @@ Ctx ▰▰▰▱▱▱ 48%  ·  cache 37m  ·  5h 23% 7d 41%
 - **Plan usage:** 5-hour and 7-day utilization (Pro/Max) from Claude Code's last saved reading in `.claude.json`. Claude Code updates it during normal use and on `/usage`. Hover the item to see reset times; readings older than `vscodeClaudeTokenUsageBarExt.planUsage.staleMinutes` are marked stale.
 
 Hover the item for details, plus a per-project token chart. Click it to refresh.
+
+![Tooltip with context, cache, plan usage and per-project totals](images/tooltip.png)
+
+While the compact reminder is due, the item switches to the reminder text and flashes:
+
+![Compact reminder in the status bar](images/screenshot_compact.png)
+
+Hovering it explains why now is a good moment to compact:
+
+![Tooltip of the compact reminder](images/tooltip_compact.png)
 
 All numbers are estimates from Claude Code's local files (`~/.claude`, or `$CLAUDE_CONFIG_DIR`). Their format isn't a stable public interface and may change with a Claude Code update.
 
